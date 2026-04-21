@@ -1250,7 +1250,21 @@ def list_authenticated_providers(
         if not _cp_has_creds:
             continue
 
-        _cp_model_ids = curated.get(_cp.slug, [])
+        # For bedrock, use live discovery so the list reflects the active
+        # region (eu.*, us.*, ap.*) instead of the hardcoded us.* static list.
+        if _cp_config and getattr(_cp_config, "auth_type", "") == "aws_sdk":
+            try:
+                from agent.bedrock_adapter import discover_bedrock_models, resolve_bedrock_region
+                _region = resolve_bedrock_region()
+                _discovered = discover_bedrock_models(_region)
+                if _discovered:
+                    _cp_model_ids = [m["id"] for m in _discovered]
+                else:
+                    _cp_model_ids = curated.get(_cp.slug, [])
+            except Exception:
+                _cp_model_ids = curated.get(_cp.slug, [])
+        else:
+            _cp_model_ids = curated.get(_cp.slug, [])
         _cp_total = len(_cp_model_ids)
         _cp_top = _cp_model_ids[:max_models]
 
