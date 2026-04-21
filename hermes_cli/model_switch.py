@@ -1175,6 +1175,18 @@ def list_authenticated_providers(
 
         if hermes_slug in {"copilot", "copilot-acp"}:
             model_ids = provider_model_ids(hermes_slug)
+        # For aws_sdk providers (bedrock), use live discovery so the list
+        # reflects the active region (eu.*, ap.*) not the static us.* list.
+        elif overlay.auth_type == "aws_sdk":
+            try:
+                from agent.bedrock_adapter import discover_bedrock_models, resolve_bedrock_region
+                _discovered = discover_bedrock_models(resolve_bedrock_region())
+                if _discovered:
+                    model_ids = [m["id"] for m in _discovered]
+                else:
+                    model_ids = curated.get(hermes_slug, []) or curated.get(pid, [])
+            except Exception:
+                model_ids = curated.get(hermes_slug, []) or curated.get(pid, [])
         else:
             # Use curated list — look up by Hermes slug, fall back to overlay key
             model_ids = curated.get(hermes_slug, []) or curated.get(pid, [])
