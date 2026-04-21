@@ -1861,6 +1861,15 @@ def provider_model_ids(provider: Optional[str], *, force_refresh: bool = False) 
             live = fetch_api_models(api_key, base_url)
             if live:
                 return live
+    if normalized == "bedrock":
+        try:
+            from agent.bedrock_adapter import discover_bedrock_models, resolve_bedrock_region
+            region = resolve_bedrock_region()
+            discovered = discover_bedrock_models(region)
+            if discovered:
+                return [m["id"] for m in discovered]
+        except Exception:
+            pass
     curated_static = list(_PROVIDER_MODELS.get(normalized, []))
     if normalized in _MODELS_DEV_PREFERRED:
         return _merge_with_models_dev(normalized, curated_static)
