@@ -1237,6 +1237,16 @@ def list_authenticated_providers(
             except Exception:
                 pass
 
+        # Special case: aws_sdk auth (bedrock) — no API key env vars,
+        # credentials come from the boto3 credential chain (env vars,
+        # ~/.aws/credentials, instance roles, etc.)
+        if not _cp_has_creds and _cp_config and getattr(_cp_config, "auth_type", "") == "aws_sdk":
+            try:
+                from agent.bedrock_adapter import has_aws_credentials
+                _cp_has_creds = has_aws_credentials()
+            except Exception:
+                pass
+
         if not _cp_has_creds:
             continue
 
