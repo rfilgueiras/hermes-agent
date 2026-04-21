@@ -852,7 +852,10 @@ class TelegramAdapter(BasePlatformAdapter):
                 # Telegram allows up to 100 commands but has an undocumented
                 # payload size limit.  Skill descriptions are truncated to 40
                 # chars in telegram_menu_commands() to fit 100 commands safely.
-                menu_commands, hidden_count = telegram_menu_commands(max_commands=100)
+                # Reserve 1 slot for /start command (Telegram convention)
+                menu_commands, hidden_count = telegram_menu_commands(max_commands=99)
+                # Add /start as the first command (Telegram convention)
+                menu_commands.insert(0, ("start", "Start the bot"))
                 await self._bot.set_my_commands([
                     BotCommand(name, desc) for name, desc in menu_commands
                 ])

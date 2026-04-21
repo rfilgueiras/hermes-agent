@@ -5,7 +5,6 @@ import { delimiter, resolve } from 'node:path'
 import { createInterface } from 'node:readline'
 
 import type { GatewayEvent } from './gatewayTypes.js'
-import { CircularBuffer } from './lib/circularBuffer.js'
 
 const MAX_GATEWAY_LOG_LINES = 200
 const MAX_LOG_LINE_BYTES = 4096
@@ -44,8 +43,6 @@ const asGatewayEvent = (value: unknown): GatewayEvent | null =>
     : null
 
 interface Pending {
-  id: string
-  method: string
   reject: (e: Error) => void
   resolve: (v: unknown) => void
   timeout: ReturnType<typeof setTimeout>
@@ -54,22 +51,15 @@ interface Pending {
 export class GatewayClient extends EventEmitter {
   private proc: ChildProcess | null = null
   private reqId = 0
-  private logs = new CircularBuffer<string>(MAX_GATEWAY_LOG_LINES)
+  private logs: string[] = []
   private pending = new Map<string, Pending>()
-  private bufferedEvents = new CircularBuffer<GatewayEvent>(MAX_BUFFERED_EVENTS)
+  private bufferedEvents: GatewayEvent[] = []
   private pendingExit: number | null | undefined
   private ready = false
   private readyTimer: ReturnType<typeof setTimeout> | null = null
   private subscribed = false
   private stdoutRl: ReturnType<typeof createInterface> | null = null
   private stderrRl: ReturnType<typeof createInterface> | null = null
-
-  constructor() {
-    super()
-    // useInput / createGatewayEventHandler can legitimately attach many
-    // listeners. Default 10-cap triggers spurious warnings.
-    this.setMaxListeners(0)
-  }
 
   private publish(ev: GatewayEvent) {
     if (ev.type === 'gateway.ready') {
@@ -97,7 +87,7 @@ export class GatewayClient extends EventEmitter {
     env.PYTHONPATH = pyPath ? `${root}${delimiter}${pyPath}` : root
 
     this.ready = false
-    this.bufferedEvents.clear()
+    this.bufferedEvents = []
     this.pendingExit = undefined
     this.stdoutRl?.close()
     this.stderrRl?.close()
@@ -196,7 +186,7 @@ export class GatewayClient extends EventEmitter {
 
   private settle(p: Pending, err: Error | null, result: unknown) {
     clearTimeout(p.timeout)
-    this.pending.delete(p.id)
+    this.pending.delete(p.id ?? '')
 
     if (err) {
       p.reject(err)
@@ -207,6 +197,9 @@ export class GatewayClient extends EventEmitter {
 
   private pushLog(line: string) {
     this.logs.push(truncateLine(line))
+    if (this.logs.length > MAX_GATEWAY_LOG_LINES) {
+      this.logs.shift()
+    }
   }
 
   private rejectPending(err: Error) {
@@ -218,21 +211,19 @@ export class GatewayClient extends EventEmitter {
     this.pending.clear()
   }
 
-  // Arrow class-field — stable identity, so `setTimeout(this.onTimeout, …, id)`
-  // doesn't allocate a bound function per request.
   private onTimeout = (id: string) => {
     const p = this.pending.get(id)
 
     if (p) {
       this.pending.delete(id)
-      p.reject(new Error(`timeout: ${p.method}`))
+      p.reject(new Error(`timeout`))
     }
   }
 
   drain() {
     this.subscribed = true
 
-    for (const ev of this.bufferedEvents.drain()) {
+    for (const ev of this.bufferedEvents) {
       this.emit('event', ev)
     }
 
@@ -245,7 +236,7 @@ export class GatewayClient extends EventEmitter {
   }
 
   getLogTail(limit = 20): string {
-    return this.logs.tail(Math.max(1, limit)).join('\n')
+    return this.logs.slice(-limit).join('\n')
   }
 
   request<T = unknown>(method: string, params: Record<string, unknown> = {}): Promise<T> {
@@ -265,8 +256,6 @@ export class GatewayClient extends EventEmitter {
       timeout.unref?.()
 
       this.pending.set(id, {
-        id,
-        method,
         reject,
         resolve: v => resolve(v as T),
         timeout
