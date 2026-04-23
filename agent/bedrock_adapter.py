@@ -291,14 +291,32 @@ def has_aws_credentials(env: Optional[Dict[str, str]] = None) -> bool:
 def resolve_bedrock_region(env: Optional[Dict[str, str]] = None) -> str:
     """Resolve the AWS region for Bedrock API calls.
 
-    Priority: AWS_REGION → AWS_DEFAULT_REGION → us-east-1 (fallback).
+    Priority:
+      1. AWS_REGION env var
+      2. AWS_DEFAULT_REGION env var
+      3. boto3/botocore configured region (from ~/.aws/config or SSO profile)
+      4. us-east-1 (hard fallback)
+
+    The boto3 fallback is critical for EU/AP users who configure their region
+    in ~/.aws/config via a named profile rather than env vars — without it,
+    live model discovery would always return us.* profile IDs regardless of
+    the user's actual region.
     """
     env = env if env is not None else os.environ
-    return (
+    explicit = (
         env.get("AWS_REGION", "").strip()
         or env.get("AWS_DEFAULT_REGION", "").strip()
-        or "us-east-1"
     )
+    if explicit:
+        return explicit
+    try:
+        import botocore.session
+        region = botocore.session.get_session().get_config_variable("region")
+        if region:
+            return region
+    except Exception:
+        pass
+    return "us-east-1"
 
 
 # ---------------------------------------------------------------------------
